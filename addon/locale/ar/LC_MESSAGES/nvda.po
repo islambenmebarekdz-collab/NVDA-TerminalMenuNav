@@ -1,0 +1,36 @@
+# Arabic translation for TerminalMenuNav.
+# Copyright (C) 2026 Islam Benmebarek
+msgid ""
+msgstr ""
+"Project-Id-Version: TerminalMenuNav 0.1.0\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Terminal Menu Navigator"
+msgstr "متصفح قوائم الطرفية"
+
+msgid "&Filter interactive menu announcements in terminals"
+msgstr "&فلترة إعلانات القوائم التفاعلية في الطرفيات"
+
+msgid "Announce the option's &position (for example: 3 of 5)"
+msgstr "نطق &موضع الخيار (مثلاً: 3 من 5)"
+
+msgid "{item}, {position} of {count}"
+msgstr "{item}، {position} من {count}"
+
+msgid "Toggles filtering of interactive menu announcements in terminals"
+msgstr "تشغيل أو إيقاف فلترة إعلانات القوائم التفاعلية في الطرفيات"
+
+msgid "Menu filtering on"
+msgstr "فلترة القوائم مفعّلة"
+
+msgid "Menu filtering off"
+msgstr "فلترة القوائم معطّلة"
+
+msgid "Announces the currently selected option of the terminal menu"
+msgstr "نطق الخيار المحدد حالياً في قائمة الطرفية"
+
+msgid "No menu detected"
+msgstr "لا توجد قائمة مكتشفة"

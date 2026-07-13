@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Terminal Menu Navigator</title>
+</head>
+<body>
+<h1>Terminal Menu Navigator</h1>
+<p>An NVDA add-on that makes interactive CLI menus in terminals usable with
+speech. When command-line tools (npm wizards, inquirer-style prompts, Claude
+Code menus) show options you navigate with the arrow keys, they repaint the
+whole list on every key press, so NVDA re-reads all the options and you never
+know where you are. This add-on detects that pattern and announces
+<strong>only the pointed option and its position</strong> (for example:
+"cherry, 3 of 5").</p>
+
+<h2>How it works</h2>
+<p>The add-on follows a "read the state, not the event" principle: new-text
+announcements are only a trigger. On each change it reads the visible
+terminal buffer and locates the menu block there (consecutive lines where
+exactly one starts with a pointer marker such as &gt; or ❯). When a new menu
+appears, the question line above it is announced once as well.</p>
+
+<h2>Gestures (remappable from Input Gestures)</h2>
+<ul>
+<li><strong>NVDA+Alt+L</strong>: toggle the filtering on or off instantly
+(your safety valve if detection ever misfires).</li>
+<li><strong>NVDA+Alt+K</strong>: repeat the currently selected option and its
+position on demand.</li>
+</ul>
+
+<h2>Settings</h2>
+<p>In NVDA settings, category "Terminal Menu Navigator": enable/disable the
+filtering, and enable/disable position announcements (3 of 5).</p>
+
+<h2>Scope</h2>
+<p>Works in real consoles (Command Prompt, PowerShell, Windows Terminal) and
+in the VS Code integrated terminal. The add-on never touches other speech:
+when no active menu is detected at the bottom of the buffer, speech passes
+through unchanged.</p>
+
+<h2>Known limitations in this version</h2>
+<ul>
+<li>Detection is heuristic by nature; if it ever misbehaves, toggle it off
+temporarily with NVDA+Alt+M.</li>
+<li>Braille is not filtered (it shows the raw text).</li>
+<li>Multi-select menus that glue the pointer to the checkbox glyph (such as
+"❯◉") may not be detected yet.</li>
+</ul>
+</body>
+</html>
