@@ -226,6 +226,39 @@ check("bare pointer '»': bare marker", menuDetect.isBareMarker("» "))
 check("real text: not bare marker",
 	not menuDetect.isBareMarker("> real option"))
 
+# --- inline horizontal radio (clack Yes/No, real vite log) -------------------
+bufferYesNo = [
+	"◇  Which linter to use?",
+	"│  Oxlint",
+	"│",
+	"◆  Install with npm and start now?",
+	"│  ● Yes / ○ No",
+	"└",
+]
+m = menuDetect.findMenu(bufferYesNo)
+check("inline Yes/No: detected", m is not None)
+if m:
+	check("inline Yes/No: two items", len(m.items) == 2, str(m.items))
+	check("inline Yes/No: Yes selected", m.selectedIndex == 0)
+	check("inline Yes/No: separator stripped", m.items == ("Yes", "No"))
+	check("inline Yes/No: question as context",
+		m.context == "◆  Install with npm and start now?")
+
+bufferNoSel = ["◆  Question?", "│  ● A / ● B", "└"]
+check("inline two filled: rejected", menuDetect.findMenu(bufferNoSel) is None)
+bufferProse = ["some output with ● in prose and more text", "PS> "]
+check("prose with circle: rejected", menuDetect.findMenu(bufferProse) is None)
+
+# --- input line extraction ----------------------------------------------------
+bufferInput = [
+	"◆  Project name:",
+	"│  tes█",
+	"└",
+]
+check("input line: extracted text", menuDetect.findInputLine(bufferInput) == "tes")
+check("input line: none without cursor",
+	menuDetect.findInputLine(["│  test1", "└"]) is None)
+
 # --- windows CRLF endings ------------------------------------------------------
 bufferCRLF = [ln + "\r" for ln in bufferA]
 m = menuDetect.findMenu(bufferCRLF)

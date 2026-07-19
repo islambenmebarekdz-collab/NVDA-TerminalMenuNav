@@ -14,11 +14,14 @@
 # Author: Islam Benmebarek <islam.benmebarek.dz@gmail.com>
 # License: GPL v2
 
+import time
+
 import api
 import config
 import controlTypes
 import core
 import globalPluginHandler
+import speech
 import textInfos
 import ui
 import wx
@@ -29,6 +32,15 @@ from scriptHandler import script
 from speech.extensions import filter_speechSequence
 
 from . import menuDetect
+
+# NVDA substitutes the translated word "blank" for empty text BEFORE the
+# speech filter runs, so blank caret echoes arrive as that word, not as an
+# empty sequence.  Capture NVDA's core translation now, while ``_`` is
+# still NVDA's own gettext (initTranslation below rebinds it to ours).
+try:
+	_CORE_BLANK = _("blank")
+except NameError:
+	_CORE_BLANK = "blank"
 
 try:
 	import addonHandler
@@ -113,6 +125,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# finds no menu (fail open: a false-positive gate must never cost
 		# the user real output).
 		self._swallowed = []
+		# Current text of the active clack input field, for the deletion
+		# echo (None when no input field is active).
+		self._lastInputText = None
+		# When a menu was last seen in the buffer; blank caret echoes
+		# within this window are navigation noise, not content.
+		self._lastMenuTime = 0.0
 		# Guards our own ui.message calls from being re-filtered.
 		self._selfSpeaking = False
 		filter_speechSequence.register(self._filterSpeech)
@@ -142,6 +160,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# can never gate or suppress speech here.
 		self._lastKey = None
 		self._lastMenu = None
+		self._lastInputText = None
 		nextHandler()
 
 	# -- terminal identification ---------------------------------------------
@@ -212,8 +231,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return value
 		texts = [part for part in value if isinstance(part, str)]
 		joined = "\n".join(texts).strip()
-		if not joined:
+		if not joined or joined == _CORE_BLANK:
+			# Blank caret echoes ride along with every arrow press while a
+			# menu is active ("blank" between announcements): silence them
+			# for the duration of the menu session only.
+			if self._lastMenu is not None \
+					and time.time() - self._lastMenuTime < 2.0:
+				return []
 			return value
+		# While a clack input field is active, box-border frame echoes
+		# (including the bare placeholder repaint when the field empties)
+		# belong to the field, not to the output.
+		if self._lastInputText is not None \
+				and joined.startswith(("│", "┃")):
+			self._swallowed.append(joined)
+			self._scheduleStateRead()
+			return []
 		knownItems = set(self._lastMenu.items) if self._lastMenu else None
 		# Lines around the menu (the question above, hint footers below)
 		# leak as stray caret events on some repaints (style-C wrap-around,
@@ -225,15 +258,32 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			stripped = joined.strip()
 			isContextEcho = (stripped in nearby
 				or menuDetect._stripBox(stripped).strip() in nearby)
-		if not isContextEcho and not menuDetect.looksRelevant(joined, knownItems):
+		# Input-field redraw echoes carry the block cursor ("│ te█"); NVDA's
+		# own character echo already voices what was typed, so these are
+		# pure noise — swallow them and let the state read handle deletion.
+		isInputEcho = menuDetect.INPUT_CURSOR in joined
+		if not isInputEcho and not isContextEcho \
+				and not menuDetect.looksRelevant(joined, knownItems):
 			return value
 		# Menu-related burst: swallow the noisy trigger now, read the real
 		# state once the repaint settles.  Bare markers/borders ("»", "└")
 		# are never meaningful on their own, so they are exempt from the
-		# fail-open re-speak.
+		# fail-open re-speak; cursor-bearing texts stay on it, so progress
+		# bars (runs of the same block glyph) are given back verbatim when
+		# the state read finds no real input field.
 		if not menuDetect.isBareMarker(joined):
 			self._swallowed.append(joined)
 		self._scheduleStateRead()
+		# Low-latency path: if the repaint has already settled, a coherent
+		# menu with a NEW selection is visible right now — announce it
+		# immediately instead of waiting out the debounce.  A stale or
+		# mid-repaint buffer yields no menu or the old key, and the
+		# debounced read stays as the correctness net.
+		lines = self._getTerminalLines(focus)
+		menu = menuDetect.findMenu(lines) if lines else None
+		if menu is not None and (menu.selectedIndex, menu.items) != self._lastKey:
+			self._swallowed = []
+			self._announceMenu(menu)
 		return []
 
 	# -- debounced state read ---------------------------------------------------
@@ -259,6 +309,27 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# State over event: the buffer is authoritative.
 		lines = self._getTerminalLines(focus)
 		menu = menuDetect.findMenu(lines) if lines else None
+		# Active text-input field: track its text and voice deletions.
+		inputText = menuDetect.findInputLine(lines) if lines else None
+		prevInput = self._lastInputText
+		if menu is None and inputText is not None:
+			self._lastInputText = inputText
+			if prevInput is not None and len(inputText) < len(prevInput) \
+					and prevInput.startswith(inputText):
+				# Backspace: voice what was removed (typing itself is
+				# already echoed by NVDA's own character echo).
+				self._speak(prevInput[len(inputText):])
+			return
+		if menu is None and prevInput is not None and lines \
+				and menuDetect.hasActiveInputStep(lines):
+			# The block cursor vanished but the step is still active: the
+			# field emptied back to its placeholder.  Voice the deleted
+			# remainder and keep tracking from the empty string.
+			self._lastInputText = ""
+			if prevInput:
+				self._speak(prevInput)
+			return
+		self._lastInputText = None
 		if menu is None and swallowed:
 			# Buffer unavailable: best-effort parse of what was swallowed,
 			# which keeps line structure outside VS Code's live regions.
@@ -270,6 +341,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if swallowed:
 				self._speak(" ".join(swallowed))
 			return
+		self._announceMenu(menu)
+
+	def _announceMenu(self, menu):
+		"""Update menu state and speak the selection if it changed."""
+		self._lastMenuTime = time.time()
 		key = (menu.selectedIndex, menu.items)
 		# Same question ⇒ same menu: keeps the context from being
 		# re-announced when a scrolling viewport (clack's "...") changes
@@ -294,6 +370,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# First time this menu shows up: keep the question/prompt line
 			# that sits above the options, then the selection.
 			announcement = menu.context + ". " + announcement
+		# Navigating: the previous item's speech is stale — cut it, like
+		# native list boxes do.
+		try:
+			speech.cancelSpeech()
+		except Exception:
+			pass
 		self._speak(announcement)
 
 	def _speak(self, text):
@@ -321,6 +403,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._swallowed = []
 			self._lastKey = None
 			self._lastMenu = None
+			self._lastInputText = None
 			# Translators: reported when the feature is turned off.
 			ui.message(_("Menu filtering off"))
 

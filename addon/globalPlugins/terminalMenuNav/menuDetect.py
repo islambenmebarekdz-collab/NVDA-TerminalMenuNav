@@ -65,6 +65,13 @@ _RADIO_MAX_BELOW = 3
 # Scrolling-viewport marker lines ("..."): never context, never an item.
 _ELLIPSIS_RE = re.compile(r"^[.…‥]+$")
 
+# Inline (horizontal) radio prompts: "● Yes / ○ No" on a single line.
+_INLINE_RADIO_LINE_RE = re.compile(r"^(?:[●◉○◯]\s*[^●◉○◯]+)+$")
+_INLINE_RADIO_ITEM_RE = re.compile(r"([●◉○◯])\s*([^●◉○◯]+)")
+
+# The block cursor clack draws inside its text-input fields ("│ te█").
+INPUT_CURSOR = "█"
+
 
 def _stripOption(line):
 	"""Return the option text if the line looks like a menu option
@@ -186,11 +193,64 @@ def _findRadioMenu(lines, lastContent, requireBottom):
 		context=above[0] if above else None, above=above, below=belowLines)
 
 
+def _findInlineRadio(lines, lastContent):
+	"""Single-line horizontal prompts like clack's "● Yes / ○ No"."""
+	for i in range(lastContent, max(lastContent - 4, -1), -1):
+		s = _stripBox(lines[i]).strip()
+		if not s or not _INLINE_RADIO_LINE_RE.match(s):
+			continue
+		parts = _INLINE_RADIO_ITEM_RE.findall(s)
+		if len(parts) < 2:
+			continue
+		selCount = sum(1 for glyph, _t in parts if glyph in "●◉")
+		if selCount != 1:
+			continue
+		items = tuple(t.strip().rstrip("/").strip() for _g, t in parts)
+		selectedIndex = next(
+			idx for idx, (glyph, _t) in enumerate(parts) if glyph in "●◉")
+		above, below = _surroundings(lines, i, i, lastContent)
+		return Menu(items=items, selectedIndex=selectedIndex,
+			context=above[0] if above else None, above=above, below=below)
+	return None
+
+
+def findInputLine(lines):
+	"""Return the box-stripped text of the active text-input line (the one
+	carrying clack's block cursor), or None.  The cursor glyph itself is
+	removed, so the result is the field's current text.
+
+	Exactly one cursor glyph is required: progress bars are drawn with
+	runs of the same block character and must never be mistaken for an
+	input field (their announcements stay on the fail-open path)."""
+	if not lines:
+		return None
+	for ln in reversed(lines):
+		if ln.count(INPUT_CURSOR) == 1:
+			return _stripBox(ln.rstrip("\r")).replace(INPUT_CURSOR, "").rstrip()
+		if INPUT_CURSOR in ln:
+			return None
+	return None
+
+
+def hasActiveInputStep(lines):
+	"""True when a clack frame near the bottom still shows an active step
+	icon ("◆ Question:").  Used to tell "the field emptied back to its
+	placeholder" apart from "the field was submitted" once the block
+	cursor disappears."""
+	if not lines:
+		return False
+	for ln in lines[-8:]:
+		if _stripBox(ln.rstrip("\r")).startswith("◆"):
+			return True
+	return False
+
+
 def findMenu(lines, requireBottom=True):
 	"""Detect an active interactive menu in terminal buffer lines.
 
-	Tries pointer-marker menus first (inquirer family), then radio-glyph
-	menus (clack family).  Returns a Menu or None.
+	Tries pointer-marker menus first (inquirer family), then vertical
+	radio-glyph menus, then single-line horizontal radio prompts (clack
+	family).  Returns a Menu or None.
 	"""
 	if not lines:
 		return None
@@ -203,6 +263,8 @@ def findMenu(lines, requireBottom=True):
 	menu = _findArrowMenu(lines, lastContent, requireBottom)
 	if menu is None:
 		menu = _findRadioMenu(lines, lastContent, requireBottom)
+	if menu is None:
+		menu = _findInlineRadio(lines, lastContent)
 	return menu
 
 

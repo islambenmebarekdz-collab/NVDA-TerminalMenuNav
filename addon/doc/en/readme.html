@@ -42,10 +42,15 @@ through unchanged.</p>
 <h2>Known limitations in this version</h2>
 <ul>
 <li>Detection is heuristic by nature; if it ever misbehaves, toggle it off
-temporarily with NVDA+Alt+M.</li>
+temporarily with NVDA+Alt+L.</li>
 <li>Braille is not filtered (it shows the raw text).</li>
 <li>Multi-select menus that glue the pointer to the checkbox glyph (such as
 "❯◉") may not be detected yet.</li>
+<li>Deleting a character from the middle of the text (not its end) in input
+fields passes silently.</li>
+<li>Holding Backspace on an already-empty field may make NVDA read
+characters from the surrounding screen text — native NVDA terminal
+behaviour, not caused by the add-on.</li>
 </ul>
 </body>
 </html>

@@ -97,7 +97,7 @@ class _Filter:
 		self.handlers.remove(h)
 
 
-_speech = _mod("speech")
+_speech = _mod("speech", cancelSpeech=lambda: None)
 _speechExt = _mod("speech.extensions", filter_speechSequence=_Filter())
 _speech.extensions = _speechExt
 
@@ -403,7 +403,109 @@ out = filt(["└"])
 check("bare border, no menu: swallowed", out, [])
 check("bare border, no menu: not re-spoken", spoken(), [])
 
-# 18) our own announcement must not be re-filtered (self-speech guard).
+# 18) clack text-input replay (vite "Project name"): typing echoes are
+# swallowed silently, backspace voices the deleted character.
+INPUT_FRAME = "npm create vite@latest\n◆  Project name:\n│  {text}█\n└\n"
+_api.getFocusObject = lambda: term
+plugin._lastKey = None
+plugin._lastMenu = None
+plugin._lastInputText = None
+term.bufferText = INPUT_FRAME.format(text="t")
+out = filt(["│ t█ "])
+check("typing echo swallowed", out, [])
+check("typing: silence (char echo is NVDA's)", spoken(), [])
+term.bufferText = INPUT_FRAME.format(text="te")
+filt(["│ te█ "])
+check("typing 2: silence", spoken(), [])
+term.bufferText = INPUT_FRAME.format(text="tes")
+filt(["│ te█│ tes█ "])  # concatenated multi-frame echo from the real log
+check("concatenated input echo: silence", spoken(), [])
+# backspace: text shrinks -> the deleted character is voiced.
+term.bufferText = INPUT_FRAME.format(text="te")
+out = filt(["│ te█ "])
+check("backspace echo swallowed", out, [])
+check("backspace: deleted char voiced", spoken(), ["s"])
+# progress bars use runs of the same block glyph: they must survive the
+# gate and be re-spoken verbatim (they are information, not noise).
+term.bufferText = "PS> pip install numpy\n████████░░░░ 45%\n"
+out = filt(["████████░░░░ 45% "])
+check("progress bar swallowed first", out, [])
+check("progress bar: re-spoken via fail-open", spoken(),
+	["████████░░░░ 45%"])
+
+# 19) inline Yes/No replay (real vite log line): detected and navigable.
+plugin._lastKey = None
+plugin._lastMenu = None
+plugin._lastInputText = None
+YESNO_FRAME = ("◇  Which linter to use?\n│  Oxlint\n│\n"
+	"◆  Install with npm and start now?\n│  {line}\n└\n")
+term.bufferText = YESNO_FRAME.format(line="● Yes / ○ No")
+out = filt(["◆ Install with npm and start now? │ ● Yes / ○ No └ "])
+check("Yes/No: flattened frame swallowed", out, [])
+check("Yes/No: context + selection", spoken(),
+	["◆  Install with npm and start now?. Yes, 1 of 2"])
+term.bufferText = YESNO_FRAME.format(line="○ Yes / ● No")
+out = filt(["○ Yes / ● No "])
+check("Yes/No arrow: repaint swallowed", out, [])
+check("Yes/No arrow: No announced", spoken(), ["No, 2 of 2"])
+
+# 20) blank caret echoes during an active menu session (the stray "blank"
+# heard before each left/right announcement in the live test): silenced
+# while the menu is fresh, passed through otherwise.
+out = filt([""])
+check("blank during menu session: silenced", out, [])
+# NVDA substitutes the word "blank" BEFORE the filter (the real live-log
+# form of the stray echo): it must be silenced the same way.
+out = filt(["blank"])
+check("'blank' word during menu session: silenced", out, [])
+plugin._lastMenuTime = 0
+out = filt([""])
+check("blank with stale menu: passes", out, [""])
+out = filt(["blank"])
+check("'blank' word with stale menu: passes", out, ["blank"])
+
+# 21) field emptied to placeholder (live-test bug: deleting the last char
+# spoke the raw placeholder line instead of the deleted character).
+plugin._lastKey = None
+plugin._lastMenu = None
+plugin._lastInputText = None
+term.bufferText = INPUT_FRAME.format(text="t")
+filt(["│ t█ "])
+spoken()  # establish input mode, tracking "t"
+term.bufferText = ("npm create vite@latest\n◆  Project name:\n"
+	"│  vite-project\n└\n")  # cursor gone, placeholder back, step active
+out = filt(["│ vite-project "])
+check("placeholder repaint swallowed", out, [])
+check("emptied field: deleted char voiced", spoken(), ["t"])
+# typing again from empty: silence (NVDA's char echo covers it).
+term.bufferText = INPUT_FRAME.format(text="x")
+filt(["│ x█ "])
+check("retype after empty: silence", spoken(), [])
+
+# 22) low-latency path: with a settled buffer, the announcement happens
+# IMMEDIATELY on the trigger — before any timer fires (the perceived-delay
+# fix from the 2026-07-13 live test).
+plugin._lastKey = None
+plugin._lastMenu = None
+plugin._lastInputText = None
+term.bufferText = FRAME.format(o1=">", o2=" ", o3=" ", o4=" ", o5=" ")
+_messages.clear()
+filt(["MENU-A-BEGIN use arrows then Enter (Esc to skip) > GOLF-1 apple "])
+check("immediate: spoken before timers fire", list(_messages),
+	["MENU-A-BEGIN use arrows then Enter (Esc to skip). GOLF-1 apple, 1 of 5"])
+_messages.clear()
+_fireTimers()
+check("immediate: debounced net stays silent", list(_messages), [])
+
+# but a STALE buffer at trigger time still defers to the debounced read
+# (the race safety net is intact).
+out = filt(["  GOLF-5 elderberry"])  # buffer still shows apple selected
+check("immediate stale: nothing spoken yet", list(_messages), [])
+term.bufferText = FRAME.format(o1=" ", o2=">", o3=" ", o4=" ", o5=" ")
+check("immediate stale: debounce announces settled state", spoken(),
+	["GOLF-2 banana, 2 of 5"])
+
+# 23) our own announcement must not be re-filtered (self-speech guard).
 _api.getFocusObject = lambda: term
 term.bufferText = FRAME.format(o1=">", o2=" ", o3=" ", o4=" ", o5=" ")
 plugin._selfSpeaking = True
